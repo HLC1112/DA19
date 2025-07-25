@@ -1,0 +1,176 @@
+# 工作流的名称
+name: Java CI with Gradle and AIOps
+
+# 定义触发工作流的事件
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# 定义工作流中的任务
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: '授权 gradlew 执行'
+        run: chmod +x gradlew
+
+      - name: 核心步骤：构建与测试
+        id: build_step
+        continue-on-error: true
+        run: ./gradlew clean build > build_error.log 2>&1
+
+      - name: 上传构建产物 (JAR)
+        if: steps.build_step.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jar
+          path: build/libs/*.jar
+
+      # --- [ 失败路径 ] ---
+      - name: 收集AI分析所需的上下文
+        if: steps.build_step.outcome == 'failure'
+        id: context_collector
+        run: |
+          echo "构建失败，正在将错误上下文保存到 .b64 文件..."
+          cat build_error.log | base64 -w 0 > error_log.b64
+          git log -1 --stat | base64 -w 0 > git_context.b64
+          echo "上下文已保存。"
+
+      - name: 安装 jq
+        if: steps.build_step.outcome == 'failure'
+        run: |
+          echo "更换 Ubuntu APT 镜像源到阿里云并安装 jq..."
+          sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+          sudo apt-get update && sudo apt-get install -y jq
+          echo "jq 安装成功。"
+
+      - name: 上报错误日志到 OpenSearch
+        if: steps.build_step.outcome == 'failure'
+        run: |
+          echo "正在上报详细错误日志到 OpenSearch..."
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          jq -n \
+            --arg timestamp "$TIMESTAMP" \
+            --rawfile log_content build_error.log \
+            '{timestamp: $timestamp, status: "failed", log_content: $log_content}' \
+            > payload.json
+          curl -s -X POST "http://localhost:9200/build_errors/_doc" \
+               -H "Content-Type: application/json" \
+               -d @payload.json
+          echo "上报完成。"
+
+      - name: 集成AI分析
+        if: steps.build_step.outcome == 'failure'
+        id: ai_analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "--- 开始调用 Gemini API 进行根本原因分析 ---"
+          ERROR_LOG=$(cat error_log.b64 | base64 -d)
+          GIT_CONTEXT=$(cat git_context.b64 | base64 -d)
+          JSON_PAYLOAD=$(jq -n \
+            --arg error_log "$ERROR_LOG" \
+            --arg git_context "$GIT_CONTEXT" \
+            '{
+              "contents": [
+                {
+                  "parts": [
+                    {
+                      "text": "你是一位资深的软件开发专家和 DevOps 工程师。请根据下面提供的构建错误日志和相关的 git 提交上下文，分析并总结出本次构建失败的根本原因（Root Cause），并提供具体的修复建议。请用中文回答，并以 Markdown 格式化你的答案。\n\n--- 构建错误日志 ---\n\($error_log)\n\n--- Git 提交上下文 ---\n\($git_context)"
+                    }
+                  ]
+                }
+              ]
+            }')
+          AI_RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=$GEMINI_API_KEY" \
+               -H "Content-Type: application/json" \
+               -d "$JSON_PAYLOAD")
+          
+          echo "$AI_RESPONSE" > ai_response.json
+          ANALYSIS_TEXT=$(echo "$AI_RESPONSE" | jq -r '.candidates[0].content.parts[0].text')
+          echo "$ANALYSIS_TEXT" > ai_analysis_result.txt
+          
+          echo "--- AI 分析结果 ---"
+          cat ai_analysis_result.txt
+          echo "--- 分析结束 ---"
+
+      - name: 将AI分析结果存入 OpenSearch
+        if: steps.build_step.outcome == 'failure'
+        run: |
+          echo "正在将 AI 分析结果存入 OpenSearch..."
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          jq -n \
+            --arg timestamp "$TIMESTAMP" \
+            --rawfile analysis_content ai_analysis_result.txt \
+            '{timestamp: $timestamp, analysis_content: $analysis_content}' \
+            > analysis_payload.json
+          curl -s -X POST "http://localhost:9200/build_analysis/_doc" \
+               -H "Content-Type: application/json" \
+               -d @analysis_payload.json
+          echo "AI 分析结果入库完成。"
+
+      - name: 发送飞书告警
+        if: steps.build_step.outcome == 'failure'
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          echo "正在准备并发送飞书告警..."
+          
+          # 1. 准备基础信息
+          REPO_TEXT="项目: ${{ github.repository }}"
+          BRANCH_TEXT="分支: ${{ github.ref_name }}"
+          ACTOR_TEXT="提交者: ${{ github.actor }}"
+          
+          # --- [ 关键更新：智能错误定位 ] ---
+          # 优先从堆栈跟踪中，提取第一个属于我们自己代码 (com.example) 的报错位置
+          ERROR_LOCATION=$(grep "at com.example" build_error.log | head -n 1 | sed 's/^[ \t]*at //')
+          
+          # 如果上面没找到（比如是启动时错误），则回退查找第一个失败的测试用例
+          if [ -z "$ERROR_LOCATION" ]; then
+            ERROR_LOCATION=$(grep -m 1 ' > ' build_error.log | grep 'FAILED' | sed 's/^[ \t]*//')
+          fi
+
+          # 如果还是没找到，则使用通用提示
+          if [ -z "$ERROR_LOCATION" ]; then
+            ERROR_LOCATION="无法自动提取，请查看完整日志。"
+          fi
+          ERROR_LOCATION_TEXT="报错位置: $ERROR_LOCATION"
+          # ------------------------------------
+          
+          # 准备 AI 分析结果
+          ANALYSIS_TEXT="AI 根本原因分析 (Root Cause Analysis):\n构建失败\n$(cat ai_analysis_result.txt)"
+
+          # 2. 将所有信息合并成一个大的文本块
+          FINAL_TEXT=$(printf "%s\n%s\n%s\n%s\n\n---\n\n%s" "$REPO_TEXT" "$BRANCH_TEXT" "$ACTOR_TEXT" "$ERROR_LOCATION_TEXT" "$ANALYSIS_TEXT")
+
+          # 3. 构造飞书纯文本消息的 JSON
+          FEISHU_PAYLOAD=$(jq -n \
+            --arg content "$FINAL_TEXT" \
+            '{
+              "msg_type": "text",
+              "content": {
+                "text": $content
+              }
+            }')
+          
+          # 4. 发送告警
+          curl -s -X POST "$FEISHU_WEBHOOK" \
+               -H "Content-Type: application/json" \
+               -d "$FEISHU_PAYLOAD"
+          
+          echo "飞书告警发送完成。"

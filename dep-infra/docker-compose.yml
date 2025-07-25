@@ -1,0 +1,42 @@
+# 文件路径: dep-infra/docker-compose.yml
+
+version: '3.8'
+
+services:
+  # OpenSearch 服务
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0 # 使用官方的OpenSearch镜像
+    container_name: opensearch-node
+    environment:
+      - discovery.type=single-node # 以单节点模式启动，最适合本地开发
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # 限制内存使用，避免占用过多本地资源
+      # 禁用安全插件，方便本地开发，无需用户名密码
+      - "DISABLE_SECURITY_PLUGIN=true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200" # 将容器的9200 API端口映射到本地
+      - "9600:9600" # 性能分析器端口
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data # 将数据持久化到本地，防止容器重启后数据丢失
+
+  # Grafana 服务
+  grafana:
+    image: grafana/grafana:11.1.0 # 使用官方的Grafana镜像
+    container_name: grafana
+    ports:
+      - "3000:3000" # 将容器的3000网页端口映射到本地
+    environment:
+      # 新增：启动时自动安装OpenSearch数据源插件
+      - GF_INSTALL_PLUGINS=grafana-opensearch-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana # 持久化Grafana的配置和仪表盘数据
+    depends_on:
+      - opensearch # 确保Grafana在OpenSearch之后启动
+
+volumes:
+  opensearch-data:
+  grafana-data:
