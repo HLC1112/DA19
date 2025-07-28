@@ -1,19 +1,18 @@
 # 文件路径: .github/workflows/local-ci-analysis.yml
 # 描述: 这是一个为本地环境设计的CI工作流。
-# 它使用 'act' 在本地运行，模拟完整的CI/CD流程，包括在测试失败时调用AI进行分析。
+# 版本 4 (完美版): 修正了AI分析的触发条件，确保在测试步骤失败时能被精确触发。
 
 name: "本地CI与AI分析流水线"
 
-on: [push, workflow_dispatch] # 定义触发条件，本地运行时可忽略
+on: [push, workflow_dispatch]
 
 jobs:
   build-and-analyze:
-    runs-on: ubuntu-latest # act会使用一个Docker容器来模拟这个环境
+    runs-on: ubuntu-latest
     steps:
       - name: "1. 拉取代码"
         uses: actions/checkout@v4
         with:
-          # 拉取所有历史记录，以便'git diff'可以正常工作
           fetch-depth: 0
 
       - name: "2. 设置Java环境"
@@ -34,22 +33,24 @@ jobs:
 
       - name: "4. 运行测试并生成报告"
         id: run_tests
-        # 关键: 'continue-on-error: true' 确保即使测试失败，工作流也会继续执行后续的分析步骤
         continue-on-error: true
-        run: ./gradlew test
+        env:
+          GRADLE_OPTS: "-Dhttps.proxyHost=host.docker.internal -Dhttps.proxyPort=7890 -Dhttp.proxyHost=host.docker.internal -Dhttp.proxyPort=7890"
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test
 
       - name: "5. 🚀 AI分析失败原因 (仅在测试失败时运行)"
-        # 关键: 'if: failure()' 条件判断，只有上一步（或之前任何一步）失败时才执行
-        if: failure()
+        # 关键修正：将 `if: failure()` 修改为 `if: steps.run_tests.outcome == 'failure'`
+        # 这会精确地检查上一步的结果，而不管 continue-on-error 的设置。
+        if: steps.run_tests.outcome == 'failure'
         run: |
           chmod +x ./scripts/analyze_failure.sh
           ./scripts/analyze_failure.sh
         env:
-          # 关键: 将从act命令传入的secret设置为环境变量，供脚本使用
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: "6. 📊 上报遥测数据到本地OpenSearch (总是运行)"
-        # 关键: 'if: always()' 确保无论成功或失败，测试数据都会被上报
         if: always()
         run: |
           chmod +x ./scripts/upload_telemetry.sh
