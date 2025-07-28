@@ -69,3 +69,4 @@ tasks.withType<Test> {
 		html.required.set(true)
 	}
 }
+

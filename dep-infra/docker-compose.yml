@@ -29,9 +29,11 @@ services:
     container_name: grafana
     ports:
       - "3000:3000" # 将容器的3000网页端口映射到本地
-    environment:
-      # 新增：启动时自动安装OpenSearch数据源插件
-      - GF_INSTALL_PLUGINS=grafana-opensearch-datasource
+    dns:
+      - 8.8.8.8       # Google
+#    environment:
+#      # 新增：启动时自动安装OpenSearch数据源插件
+#      - GF_INSTALL_PLUGINS=grafana-opensearch-datasource
     volumes:
       - grafana-data:/var/lib/grafana # 持久化Grafana的配置和仪表盘数据
     depends_on:
