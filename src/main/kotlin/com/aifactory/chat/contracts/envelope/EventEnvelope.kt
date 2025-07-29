@@ -1,5 +1,6 @@
 package com.aifactory.chat.contracts.envelope
 
+import com.aifactory.chat.contracts.v1.cmd.SendMessageCmd
 import java.time.Instant
 import java.util.UUID
 
@@ -59,13 +60,13 @@ data class GovernanceHeader(
 /**
  * 创建一个新的、作为流程起点的事件信封
  */
-fun <T> createInitialEnvelope(
+fun createInitialEnvelope(
     eventType: String,
     sourceLayer: String,
     sourceService: String,
     actorId: String,
-    data: T
-): EventEnvelope<T> {
+    data: SendMessageCmd
+): EventEnvelope<SendMessageCmd> {
     val correlationId = "corr-uuid-${UUID.randomUUID()}"
     return EventEnvelope(
         protocolHeader = ProtocolHeader(eventType = eventType),

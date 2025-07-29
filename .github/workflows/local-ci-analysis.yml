@@ -1,6 +1,5 @@
 # 文件路径: .github/workflows/local-ci-analysis.yml
 # 描述: 这是一个为本地环境设计的CI工作流。
-# 版本 4 (完美版): 修正了AI分析的触发条件，确保在测试步骤失败时能被精确触发。
 
 name: "本地CI与AI分析流水线"
 
@@ -41,18 +40,22 @@ jobs:
           ./gradlew test
 
       - name: "5. 🚀 AI分析失败原因 (仅在测试失败时运行)"
-        # 关键修正：将 `if: failure()` 修改为 `if: steps.run_tests.outcome == 'failure'`
-        # 这会精确地检查上一步的结果，而不管 continue-on-error 的设置。
         if: steps.run_tests.outcome == 'failure'
+        # 关键修正：为整个步骤设置代理环境变量，确保curl可以访问外部API。
+        env:
+          https_proxy: "http://host.docker.internal:7890"
+          http_proxy: "http://host.docker.internal:7890"
+          no_proxy: "localhost,127.0.0.1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          sed -i 's/\r$//' ./scripts/analyze_failure.sh
           chmod +x ./scripts/analyze_failure.sh
           ./scripts/analyze_failure.sh
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: "6. 📊 上报遥测数据到本地OpenSearch (总是运行)"
         if: always()
         run: |
+          sed -i 's/\r$//' ./scripts/upload_telemetry.sh
           chmod +x ./scripts/upload_telemetry.sh
           ./scripts/upload_telemetry.sh
 

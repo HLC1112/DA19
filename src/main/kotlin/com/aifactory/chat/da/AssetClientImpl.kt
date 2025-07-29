@@ -1,9 +1,9 @@
 package com.aifactory.chat.da
 
+import com.aifactory.chat.app.AssetClient
 import com.aifactory.chat.contracts.envelope.EventEnvelope
 import com.aifactory.chat.contracts.envelope.createNextEnvelope
 import com.aifactory.chat.contracts.v1.evt.AssetConsumedEvt
-import com.aifactory.chat.da.AssetClient
 import org.springframework.stereotype.Component
 
 /**

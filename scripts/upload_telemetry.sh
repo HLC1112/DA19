@@ -3,7 +3,6 @@
 # 文件路径: scripts/upload_telemetry.sh
 # 描述: 此脚本负责解析JUnit XML测试报告，并将其中的数据转换为JSON格式，
 #       然后上报到本地运行的OpenSearch实例中。
-# 版本 9 (生产终版): 修正了curl命令，确保Bulk API请求以必需的换行符结尾。
 
 # --- Configuration ---
 OPENSEARCH_URL="http://host.docker.internal:9200"

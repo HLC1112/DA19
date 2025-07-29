@@ -1,4 +1,4 @@
-package com.aifactory.chat.da
+package com.aifactory.chat.app
 
 import com.aifactory.chat.contracts.envelope.EventEnvelope
 import com.aifactory.chat.contracts.v1.evt.AssetConsumedEvt

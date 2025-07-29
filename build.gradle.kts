@@ -1,10 +1,10 @@
 // 文件路径: build.gradle.kts
-// 版本 3 (完美版): 明确导入Spring Boot的BOM(物料清单)，以确保所有依赖版本正确无误。
+// 描述: 修正了Spring Statemachine的版本冲突问题。
 
 plugins {
 	kotlin("jvm") version "1.9.25"
 	kotlin("plugin.spring") version "1.9.25"
-	id("org.springframework.boot") version "3.5.3"
+	id("org.springframework.boot") version "3.5.2"
 	id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -19,7 +19,7 @@ springBoot {
 java.sourceCompatibility = JavaVersion.VERSION_17
 
 repositories {
-	maven { url = uri("https://maven.aliyun.com/repository/public") }
+	maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
 	mavenCentral()
 }
 
@@ -27,6 +27,7 @@ dependencyManagement {
 	imports {
 		// 关键修正：明确导入Spring Boot的依赖版本清单 (BOM)
 		mavenBom(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
+		// 使用与Spring Boot 3.5.x 兼容的最新稳定版
 		mavenBom("org.springframework.statemachine:spring-statemachine-bom:3.2.1")
 	}
 }
@@ -36,7 +37,9 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 
-	implementation("org.springframework.statemachine:spring-statemachine-starter:3.2.1")
+	// ⭐ 关键修正：移除了此处的版本号。
+	// 版本将由上面 dependencyManagement 中的 statemachine-bom 统一管理。
+	implementation("org.springframework.statemachine:spring-statemachine-starter")
 
 	// --- ⭐ 新增：Web 和 API 功能依赖 ---
 	implementation("org.springframework.boot:spring-boot-starter-web")
@@ -54,6 +57,10 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+	testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+	// In your build.gradle.kts file, add this to the dependencies block
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
 }
 
 kotlin {
@@ -69,4 +76,3 @@ tasks.withType<Test> {
 		html.required.set(true)
 	}
 }
-
